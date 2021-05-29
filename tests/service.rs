@@ -4,7 +4,7 @@ mod tests {
     use std::{
         sync::{
             atomic::{AtomicBool, Ordering},
-            mpsc, Arc,
+            Arc,
         },
         thread,
         time::Duration,
@@ -95,10 +95,14 @@ mod tests {
                 }
             });
             assert!(inst.is_running());
-            assert!(matches!(svc.pause(), Ok(status) if matches!(status, ServiceStatus::Paused(_))));
+            assert!(
+                matches!(svc.pause(), Ok(status) if matches!(status, ServiceStatus::Paused(_)))
+            );
             assert!(inst.paused());
 
-            assert!(matches!(svc.resume(), Ok(status) if matches!(status, ServiceStatus::Running())));
+            assert!(
+                matches!(svc.resume(), Ok(status) if matches!(status, ServiceStatus::Running()))
+            );
             assert!(inst.is_running());
 
             assert!(matches!(svc.stop(), Ok(status) if matches!(status, ServiceStatus::Stopped())));
@@ -115,8 +119,8 @@ mod tests {
         F: FnOnce() -> T,
         F: Send + 'static,
     {
-        let (done_tx, done_rx) = mpsc::channel();
-        let handle = thread::spawn(move || {
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
             let val = f();
             done_tx.send(()).expect("Unable to send completion signal");
             val
