@@ -36,7 +36,7 @@ pub enum ServiceControlCode {
 pub enum ServiceStatus {
     Stopped(),
     Paused(ServiceContext),
-    None(),
+    Running(),
 }
 
 #[derive(Clone, Debug)]
@@ -75,10 +75,24 @@ pub enum Event<T> {
 
 impl ServiceInstance {
     pub fn stopped(&self) -> bool {
-        match *self.context.lock().unwrap().status {
-            ServiceStatus::Stopped() => true,
-            _ => false,
-        }
+        matches!(
+            *self.context.lock().unwrap().status,
+            ServiceStatus::Stopped()
+        )
+    }
+
+    pub fn paused(&self) -> bool {
+        matches!(
+            *self.context.lock().unwrap().status,
+            ServiceStatus::Paused(_)
+        )
+    }
+
+    pub fn is_running(&self) -> bool {
+        matches!(
+            *self.context.lock().unwrap().status,
+            ServiceStatus::Running()
+        )
     }
 
     pub fn do_events<T: futures::Future>(
@@ -87,8 +101,17 @@ impl ServiceInstance {
     ) -> Result<Event<<T as Future>::Output>, RecvError> {
         let mut rx = self.context.lock().unwrap().rx2.clone();
 
-        if self.stopped() {
-            return Ok(Event::ServiceStatus(ServiceStatus::Stopped()));
+        match self.context.lock() {
+            Ok(context) => match &*context.status {
+                ServiceStatus::Stopped() => {
+                    return Ok(Event::ServiceStatus(ServiceStatus::Stopped()));
+                }
+                ServiceStatus::Paused(context) => {
+                    return Ok(Event::ServiceStatus(ServiceStatus::Paused(context.clone())));
+                }
+                ServiceStatus::Running() => {}
+            },
+            Err(_) => {}
         }
 
         enum Event2<T> {
@@ -114,7 +137,7 @@ impl ServiceInstance {
                         ServiceControlRequest::Pause(_) => Ok(Event::ServiceStatus(
                             ServiceStatus::Paused(self.context.lock().unwrap().clone()),
                         )),
-                        _ => Ok(Event::ServiceStatus(ServiceStatus::None())),
+                        _ => Ok(Event::ServiceStatus(ServiceStatus::Running())),
                     },
                     Event2::Future(out) => Ok(Event::Future(out)),
                 },
@@ -145,13 +168,13 @@ impl Service {
         let (tx, rx) = tokio::sync::watch::channel(());
         let (tx1, rx1) = watch::channel(ServiceControlRequest::Init());
         let context = Arc::new(Mutex::new(ServiceContext {
-            status: Box::new(ServiceStatus::None()),
+            status: Box::new(ServiceStatus::Running()),
             rx,
             rx2: rx1.clone(),
         }));
 
         let s = Service {
-            status: ServiceStatus::None(),
+            status: ServiceStatus::Running(),
             notify: Box::new(tx),
             context: context.clone(),
             channel: (Box::new(tx1), rx1.clone()),
@@ -178,7 +201,7 @@ impl Service {
         &mut self,
     ) -> Result<ServiceStatus, watch::error::SendError<ServiceControlRequest>> {
         match self.status {
-            ServiceStatus::None() => self.send(ServiceControlCode::Pause()),
+            ServiceStatus::Running() => self.send(ServiceControlCode::Pause()),
             _ => Ok(self.status.clone()),
         }
     }
@@ -215,8 +238,8 @@ impl Service {
 
                 let mut ctx = self.context.lock().unwrap();
                 ctx.rx = rx.clone();
-                ctx.status = Box::new(ServiceStatus::None());
-                self.status = ServiceStatus::None();
+                ctx.status = Box::new(ServiceStatus::Running());
+                self.status = ServiceStatus::Running();
                 ServiceControlRequest::Continue()
             }
         });
