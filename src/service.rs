@@ -1,10 +1,6 @@
 use futures::{executor::block_on, Future};
 use log::error;
-use std::{
-    error::Error,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 use tokio::sync::watch::{self, error::RecvError, Receiver, Sender};
 
 #[derive(Clone, Debug)]
@@ -45,23 +41,6 @@ pub enum ServiceControlRequest {
     Stop(),
     Pause(ServiceContext),
     Continue(),
-}
-
-#[derive(Debug)]
-pub struct ServiceError {
-    cause: Option<&'static dyn Error>,
-}
-
-impl Error for ServiceError {}
-
-impl fmt::Display for ServiceError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        if self.cause.is_some() {
-            f.write_fmt(format_args!("{:?}", self.cause))
-        } else {
-            write!(f, "unknown service error")
-        }
-    }
 }
 
 pub struct ServiceInstance {
