@@ -1,7 +1,6 @@
 use futures::{executor::block_on, Future};
-use log::error;
 use std::sync::{Arc, Mutex};
-use tokio::sync::watch::{self, error::RecvError, Receiver, Sender};
+use tokio::sync::watch::{self, Receiver, Sender};
 
 #[derive(Clone, Debug)]
 pub struct ServiceContext {
@@ -11,12 +10,10 @@ pub struct ServiceContext {
 }
 
 impl ServiceContext {
-    pub fn wait(&mut self) {
+    pub fn wait(&mut self) -> std::io::Result<()> {
         match block_on(self.rx.changed()) {
-            Ok(_) => {}
-            Err(err) => {
-                error!("Failed to wait : {}", err)
-            }
+            Ok(_) => Ok(()),
+            Err(err) => Err(std::io::Error::new(std::io::ErrorKind::Other, err)),
         }
     }
 }
@@ -39,7 +36,7 @@ pub enum ServiceStatus {
 pub enum ServiceControlRequest {
     Init(),
     Stop(),
-    Pause(ServiceContext),
+    Pause(),
     Continue(),
 }
 
@@ -48,7 +45,7 @@ pub struct ServiceInstance {
 }
 
 pub enum Event<T> {
-    ServiceStatus(ServiceStatus),
+    StatusChanged(ServiceStatus),
     Future(T),
 }
 
@@ -74,53 +71,53 @@ impl ServiceInstance {
         )
     }
 
-    pub fn do_events<T: futures::Future>(
-        &self,
-        future: T,
-    ) -> Result<Event<<T as Future>::Output>, RecvError> {
+    pub async fn wait_async(&self) -> std::io::Result<ServiceStatus> {
         let mut rx = self.context.lock().unwrap().rx2.clone();
-
         match self.context.lock() {
             Ok(context) => match &*context.status {
                 ServiceStatus::Stopped() => {
-                    return Ok(Event::ServiceStatus(ServiceStatus::Stopped()));
+                    return Ok(ServiceStatus::Stopped());
                 }
                 ServiceStatus::Paused(context) => {
-                    return Ok(Event::ServiceStatus(ServiceStatus::Paused(context.clone())));
+                    return Ok(ServiceStatus::Paused(context.clone()));
                 }
                 ServiceStatus::Running() => {}
             },
             Err(_) => {}
         }
-
-        enum Event2<T> {
-            ServiceControlRequest(ServiceControlRequest),
-            Future(T),
+        match rx.changed().await {
+            Ok(_) => match rx.borrow().clone() {
+                ServiceControlRequest::Stop() => Ok(ServiceStatus::Stopped()),
+                ServiceControlRequest::Pause() => {
+                    Ok(ServiceStatus::Paused(self.context.lock().unwrap().clone()))
+                }
+                ServiceControlRequest::Continue() => Ok(ServiceStatus::Running()),
+                _ => unreachable!(),
+            },
+            Err(err) => Err(std::io::Error::new(std::io::ErrorKind::Other, err)),
         }
+    }
 
+    pub fn wait(&self) -> std::io::Result<ServiceStatus> {
+        match block_on(self.wait_async()) {
+            Ok(status) => Ok(status),
+            Err(err) => Err(err),
+        }
+    }
+
+    pub fn wait_future<T: futures::Future>(
+        &self,
+        future: T,
+    ) -> std::io::Result<Event<<T as Future>::Output>> {
         block_on(async {
-            match tokio::select! {
-                o = future => Ok(Event2::Future(o)),
-                c = rx.changed() => {
-                    match c {
-                        Ok(_) => Ok(Event2::ServiceControlRequest(rx.borrow().clone())),
+            tokio::select! {
+                o = future => Ok(Event::Future(o)),
+                s = self.wait_async() => {
+                    match s {
+                        Ok(s) => Ok(Event::StatusChanged(s)),
                         Err(err) => Err(err),
                     }
-                },
-            } {
-                Ok(event) => match event {
-                    Event2::ServiceControlRequest(r) => match r {
-                        ServiceControlRequest::Stop() => {
-                            Ok(Event::ServiceStatus(ServiceStatus::Stopped()))
-                        }
-                        ServiceControlRequest::Pause(_) => Ok(Event::ServiceStatus(
-                            ServiceStatus::Paused(self.context.lock().unwrap().clone()),
-                        )),
-                        _ => Ok(Event::ServiceStatus(ServiceStatus::Running())),
-                    },
-                    Event2::Future(out) => Ok(Event::Future(out)),
-                },
-                Err(err) => Err(err),
+                }
             }
         })
     }
@@ -151,16 +148,13 @@ impl Service {
             rx,
             rx2: rx1.clone(),
         }));
-
-        let s = Service {
-            status: ServiceStatus::Running(),
-            notify: Box::new(tx),
-            context: context.clone(),
-            channel: (Box::new(tx1), rx1.clone()),
-        };
-
         (
-            s,
+            Service {
+                status: ServiceStatus::Running(),
+                notify: Box::new(tx),
+                context: context.clone(),
+                channel: (Box::new(tx1), rx1.clone()),
+            },
             Arc::new(ServiceInstance {
                 context: context.clone(),
             }),
@@ -208,7 +202,7 @@ impl Service {
                 let mut ctx = self.context.lock().unwrap();
                 ctx.status = Box::new(ServiceStatus::Paused(ctx.clone()));
                 self.status = ServiceStatus::Paused(ctx.clone());
-                ServiceControlRequest::Pause(ctx.clone())
+                ServiceControlRequest::Pause()
             }
             ServiceControlCode::Resume() => {
                 self.notify.send(()).unwrap();

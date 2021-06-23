@@ -16,28 +16,23 @@ It helps to implement services with interfaces similar to windows services.
 
 ```rust
 use service_rs::service;
-use std::time::Duration;
 use std::{io::BufRead, thread};
 
 let (mut svc, inst) = service::Service::new();
 thread::spawn(move || loop {
-    match inst.do_events(async { thread::sleep(Duration::from_secs(1)) }) {
-        Ok(event) => match event {
-            service::Event::ServiceStatus(status) => match status {
-                service::ServiceStatus::Stopped() => {
-                    return;
-                }
-                service::ServiceStatus::Paused(mut ctx) => {
-                    ctx.wait();
-                }
-                service::ServiceStatus::Running() => {}
+    match inst.wait() {
+        Ok(status) => match status {
+            ServiceStatus::Stopped() => {
+                return;
+            }
+            ServiceStatus::Paused(mut ctx) => {
+                ctx.wait().unwrap();
             },
-            service::Event::Future(_) => {}
+            ServiceStatus::Running() => {},
         },
         Err(_) => {}
     }
-
-    // TODO
+    
     println!("TODO");
 });
 

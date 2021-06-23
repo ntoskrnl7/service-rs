@@ -11,31 +11,108 @@ mod tests {
     };
 
     #[test]
-    fn basic_test() {
+    fn wait_test() {
         panic_after(Duration::from_millis(500), || {
             let (mut svc, inst) = service::Service::new();
             let stopped = Arc::new(AtomicBool::new(false));
             let stopped2 = stopped.clone();
             let handle = thread::spawn(move || loop {
-                match inst.do_events(async {}) {
-                    Ok(event) => match event {
-                        service::Event::ServiceStatus(status) => match status {
-                            service::ServiceStatus::Stopped() => {
-                                stopped2.store(true, Ordering::Relaxed);
-                                return;
-                            }
-                            service::ServiceStatus::Paused(_) => {}
-                            service::ServiceStatus::Running() => {}
-                        },
-                        service::Event::Future(_) => {}
+                match inst.wait() {
+                    Ok(status) => match status {
+                        ServiceStatus::Stopped() => {
+                            stopped2.store(true, Ordering::Relaxed);
+                            return;
+                        }
+                        ServiceStatus::Paused(_) => unreachable!(),
+                        ServiceStatus::Running() => unreachable!(),
                     },
                     Err(_) => {}
                 }
+                todo!()
             });
             assert!(matches!(svc.stop(), Ok(status) if matches!(status, ServiceStatus::Stopped())));
             assert!(matches!(handle.join(), Ok(_)));
-            assert_eq!(stopped.load(Ordering::Relaxed), true);
+            assert!(stopped.load(Ordering::Relaxed));
         });
+    }
+
+    #[tokio::test]
+    async fn wait_async_test() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (mut svc, inst) = service::Service::new();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stopped2 = stopped.clone();
+        let handle = rt.spawn(async move {
+            loop {
+                match tokio::select! {
+                    f = inst.wait_async() => f,
+                    _ = tokio::time::sleep(Duration::from_millis(10)) => {
+                        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"))
+                    }
+                } {
+                    Ok(status) => match status {
+                        ServiceStatus::Stopped() => {
+                            stopped2.store(true, Ordering::Relaxed);
+                            return Ok(());
+                        }
+                        ServiceStatus::Paused(_) => unreachable!(),
+                        ServiceStatus::Running() => unreachable!(),
+                    },
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+                // TODO
+            }
+        });
+        std::thread::sleep(Duration::from_secs(1));
+        assert!(matches!(svc.stop(), Ok(status) if matches!(status, ServiceStatus::Stopped())));
+        assert!(matches!(handle.await, Ok(res) if res.is_err()));
+        assert!(!stopped.load(Ordering::Relaxed));
+        rt.shutdown_background();
+    }
+
+    #[tokio::test]
+    async fn wait_async_timeout_test() {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (mut svc, inst) = service::Service::new();
+        let stopped = Arc::new(AtomicBool::new(false));
+        let stopped2 = stopped.clone();
+        let handle = rt.spawn(async move {
+            loop {
+                match tokio::select! {
+                    f = inst.wait_async() => f,
+                    _ = tokio::time::sleep(Duration::from_secs(100)) => {
+                        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"))
+                    }
+                } {
+                    Ok(status) => match status {
+                        ServiceStatus::Stopped() => {
+                            stopped2.store(true, Ordering::Relaxed);
+                            return Ok(());
+                        }
+                        ServiceStatus::Paused(_) => unreachable!(),
+                        ServiceStatus::Running() => unreachable!(),
+                    },
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+
+                // TODO
+            }
+        });
+        assert!(matches!(svc.stop(), Ok(status) if matches!(status, ServiceStatus::Stopped())));
+        assert!(matches!(handle.await, Ok(_)));
+        assert!(stopped.load(Ordering::Relaxed));
+
+        rt.shutdown_background();
     }
 
     #[test]
@@ -46,17 +123,14 @@ mod tests {
             let stopped2 = stopped.clone();
             let inst2 = inst.clone();
             let handle = thread::spawn(move || loop {
-                match inst2.do_events(async {}) {
-                    Ok(event) => match event {
-                        service::Event::ServiceStatus(status) => match status {
-                            service::ServiceStatus::Stopped() => {
-                                stopped2.store(true, Ordering::Relaxed);
-                                return;
-                            }
-                            service::ServiceStatus::Paused(_) => {}
-                            service::ServiceStatus::Running() => {}
-                        },
-                        service::Event::Future(_) => {}
+                match inst2.wait() {
+                    Ok(status) => match status {
+                        service::ServiceStatus::Stopped() => {
+                            stopped2.store(true, Ordering::Relaxed);
+                            return;
+                        }
+                        service::ServiceStatus::Paused(_) => {}
+                        service::ServiceStatus::Running() => {}
                     },
                     Err(_) => {}
                 }
@@ -67,7 +141,7 @@ mod tests {
             assert!(inst.stopped());
 
             assert!(matches!(handle.join(), Ok(_)));
-            assert_eq!(stopped.load(Ordering::Relaxed), true);
+            assert!(stopped.load(Ordering::Relaxed));
         });
     }
 
@@ -79,17 +153,16 @@ mod tests {
             let stopped2 = stopped.clone();
             let inst2 = inst.clone();
             let handle = thread::spawn(move || loop {
-                match inst2.do_events(async {}) {
-                    Ok(event) => match event {
-                        service::Event::ServiceStatus(status) => match status {
-                            service::ServiceStatus::Stopped() => {
-                                stopped2.store(true, Ordering::Relaxed);
-                                return;
-                            }
-                            service::ServiceStatus::Paused(_) => {}
-                            service::ServiceStatus::Running() => {}
-                        },
-                        service::Event::Future(_) => {}
+                match inst2.wait() {
+                    Ok(status) => match status {
+                        service::ServiceStatus::Stopped() => {
+                            stopped2.store(true, Ordering::Relaxed);
+                            return;
+                        }
+                        service::ServiceStatus::Paused(mut ctx) => {
+                            assert!(matches!(ctx.wait(), Ok(())));
+                        }
+                        service::ServiceStatus::Running() => {}
                     },
                     Err(_) => {}
                 }
@@ -109,7 +182,40 @@ mod tests {
             assert!(inst.stopped());
 
             assert!(matches!(handle.join(), Ok(_)));
-            assert_eq!(stopped.load(Ordering::Relaxed), true);
+            assert!(stopped.load(Ordering::Relaxed));
+        });
+    }
+
+    #[test]
+    fn wait_future_test() {
+        panic_after(Duration::from_secs(3), || {
+            let (mut svc, inst) = service::Service::new();
+            let stopped = Arc::new(AtomicBool::new(false));
+            let stopped2 = stopped.clone();
+            let handle = thread::spawn(move || loop {
+                match inst.wait_future(async { std::thread::sleep(Duration::from_millis(10)) }) {
+                    Ok(event) => match event {
+                        service::Event::StatusChanged(status) => match status {
+                            service::ServiceStatus::Stopped() => {
+                                stopped2.store(true, Ordering::Relaxed);
+                                return Ok(1);
+                            }
+                            service::ServiceStatus::Paused(_) => unreachable!(),
+                            service::ServiceStatus::Running() => unreachable!(),
+                        },
+                        service::Event::Future(_) => {
+                            return Ok(2);
+                        }
+                    },
+                    Err(err) => {
+                        return Err(err);
+                    }
+                }
+            });
+            thread::sleep(Duration::from_secs(1));
+            assert!(matches!(svc.stop(), Ok(status) if matches!(status, ServiceStatus::Stopped())));
+            assert!(matches!(handle.join(), Ok(res) if matches!(res, Ok(res) if res == 2)));
+            assert!(!stopped.load(Ordering::Relaxed));
         });
     }
 
