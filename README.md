@@ -17,9 +17,8 @@ It helps to implement services with interfaces similar to windows services.
 ## Example
 
 ```rust
-use service_rs::service;
+use service::{Service, ServiceStatus};
 use std::{io::BufRead, thread};
-
 let (mut svc, inst) = service::Service::new();
 thread::spawn(move || loop {
     match inst.wait() {
@@ -29,15 +28,13 @@ thread::spawn(move || loop {
             }
             ServiceStatus::Paused(mut ctx) => {
                 ctx.wait().unwrap();
-            },
-            ServiceStatus::Running() => {},
+            }
+            ServiceStatus::Running() => {}
         },
         Err(_) => {}
     }
-    
     println!("TODO");
 });
-
 let mut available_cmd = "[P: Pause, S: Stop]";
 loop {
     println!("{}", ["Selet a command", available_cmd].join(" "));

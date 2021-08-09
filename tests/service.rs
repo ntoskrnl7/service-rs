@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use service::{self, ServiceStatus};
+    use service::{Service, ServiceStatus};
     use std::{
         sync::{
             atomic::{AtomicBool, Ordering},
@@ -13,7 +13,7 @@ mod tests {
     #[test]
     fn wait_test() {
         panic_after(Duration::from_millis(500), || {
-            let (mut svc, inst) = service::Service::new();
+            let (mut svc, inst) = Service::new();
             let stopped = Arc::new(AtomicBool::new(false));
             let stopped2 = stopped.clone();
             let handle = thread::spawn(move || loop {
@@ -42,7 +42,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let (mut svc, inst) = service::Service::new();
+        let (mut svc, inst) = Service::new();
         let stopped = Arc::new(AtomicBool::new(false));
         let stopped2 = stopped.clone();
         let handle = rt.spawn(async move {
@@ -81,7 +81,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let (mut svc, inst) = service::Service::new();
+        let (mut svc, inst) = Service::new();
         let stopped = Arc::new(AtomicBool::new(false));
         let stopped2 = stopped.clone();
         let handle = rt.spawn(async move {
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn inst_test() {
         panic_after(Duration::from_millis(500), || {
-            let (mut svc, inst) = service::Service::new();
+            let (mut svc, inst) = Service::new();
             let stopped = Arc::new(AtomicBool::new(false));
             let stopped2 = stopped.clone();
             let inst2 = inst.clone();
@@ -148,7 +148,7 @@ mod tests {
     #[test]
     fn pause_resume_test() {
         panic_after(Duration::from_millis(500), || {
-            let (mut svc, inst) = service::Service::new();
+            let (mut svc, inst) = Service::new();
             let stopped = Arc::new(AtomicBool::new(false));
             let stopped2 = stopped.clone();
             let inst2 = inst.clone();
@@ -189,7 +189,7 @@ mod tests {
     #[test]
     fn wait_future_test() {
         panic_after(Duration::from_secs(3), || {
-            let (mut svc, inst) = service::Service::new();
+            let (mut svc, inst) = Service::new();
             let stopped = Arc::new(AtomicBool::new(false));
             let stopped2 = stopped.clone();
             let handle = thread::spawn(move || loop {
