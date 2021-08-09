@@ -1,5 +1,7 @@
 # service-rs
 
+[![Rust](https://github.com/ntoskrnl7/service-rs/actions/workflows/rust.yml/badge.svg)](https://github.com/ntoskrnl7/service-rs/actions/workflows/rust.yml)
+
 A library for implementing programs that support pause, stop, and resume.
 
 ## Overview
