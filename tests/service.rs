@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use service_rs::service::{self, ServiceStatus};
+    use service::{self, ServiceStatus};
     use std::{
         sync::{
             atomic::{AtomicBool, Ordering},

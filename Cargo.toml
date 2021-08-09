@@ -1,6 +1,6 @@
 [package]
-name = "service-rs"
-version = "0.2.0"
+name = "service"
+version = "0.3.0"
 authors = ["Jung-Kwang Lee <ntoskrnl7@gmail.com>"]
 edition = "2018"
 
